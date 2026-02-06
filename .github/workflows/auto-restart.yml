@@ -1,0 +1,72 @@
+name: Auto Restart Bot Session
+
+on:
+  schedule:
+    # Every 4 hours restart (for session refresh)
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+jobs:
+  restart-session:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+        
+    - name: Restart Bot
+      run: |
+        ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+        echo "🔄 Starting session refresh at $(date)"
+        
+        # Check if bot is running
+        if ! pgrep -f "python.*t.py" > /dev/null; then
+          echo "⚠️ Bot is not running, starting fresh..."
+          cd ~/terabox-bot
+          nohup python t.py > bot.log 2>&1 &
+        else
+          echo "🔄 Restarting bot for new session..."
+          
+          # Get bot PID
+          BOT_PID=$(pgrep -f "python.*t.py")
+          echo "Current PID: $BOT_PID"
+          
+          # Graceful shutdown
+          kill -TERM $BOT_PID
+          sleep 3
+          
+          # Force kill if still running
+          if pgrep -f "python.*t.py" > /dev/null; then
+            pkill -9 -f "python.*t.py"
+            sleep 2
+          fi
+          
+          # Start fresh
+          cd ~/terabox-bot
+          
+          # Rotate logs
+          if [ -f bot.log ]; then
+            mv bot.log "bot_$(date +%Y%m%d_%H%M%S).log"
+          fi
+          
+          # Start bot
+          nohup python t.py > bot.log 2>&1 &
+        fi
+        
+        # Verify
+        sleep 5
+        if pgrep -f "python.*t.py" > /dev/null; then
+          echo "✅ Bot started successfully with fresh session"
+          echo "📝 New PID: $(pgrep -f "python.*terabox_bot.py")"
+          echo "⏰ Time: $(date)"
+        else
+          echo "❌ Failed to start bot"
+          cat ~/terabox-bot/bot.log
+          exit 1
+        fi
+        EOF
+        
