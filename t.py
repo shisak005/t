@@ -552,4 +552,162 @@ class TeraboxDownloader:
 • Total Users: {len(self.users_data['users'])}
 • Active Today: {sum(1 for uid, time in self.users_data['last_active'].items() 
                      if time.startswith(today))}
-• Active Yesterda
+• Active Yesterday: {sum(1 for uid, time in self.users_data['last_active'].items() 
+                        if time.startswith(yesterday))}
+
+📈 **Usage:**
+• Total Requests: {self.stats['total_requests']}
+• Successful: {self.stats['successful_downloads']}
+• Failed: {self.stats['failed_downloads']}
+• Success Rate: {(self.stats['successful_downloads']/self.stats['total_requests']*100 
+                 if self.stats['total_requests'] > 0 else 0):.1f}%
+
+📅 **Today's Requests:** {self.stats['daily_requests'].get(today, 0)}
+📅 **Yesterday's Requests:** {self.stats['daily_requests'].get(yesterday, 0)}
+
+🔄 **Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        """
+    
+    async def stats_command(self, update: Update, context: CallbackContext):
+        """Handle /stats command (Admin only)"""
+        user = update.effective_user
+        
+        if not self.is_admin(user.id):
+            await update.message.reply_text("❌ This command is for administrators only.")
+            return
+        
+        stats_text = self.get_admin_stats()
+        await update.message.reply_text(stats_text, parse_mode='Markdown')
+    
+    async def users_command(self, update: Update, context: CallbackContext):
+        """Handle /users command (Admin only)"""
+        user = update.effective_user
+        
+        if not self.is_admin(user.id):
+            await update.message.reply_text("❌ This command is for administrators only.")
+            return
+        
+        total_users = len(self.users_data["users"])
+        await update.message.reply_text(
+            f"👥 **Total Users:** {total_users}\n"
+            f"📅 **Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            parse_mode='Markdown'
+        )
+    
+    async def broadcast_command(self, update: Update, context: CallbackContext):
+        """Handle /broadcast command (Admin only)"""
+        user = update.effective_user
+        
+        if not self.is_admin(user.id):
+            await update.message.reply_text("❌ This command is for administrators only.")
+            return
+        
+        # Check if message text is provided
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: /broadcast <message>\n\n"
+                "Example: /broadcast Hello users!"
+            )
+            return
+        
+        message = " ".join(context.args)
+        total_users = len(self.users_data["users"])
+        
+        # Confirm broadcast
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Yes, Send", callback_data=f"broadcast_yes_{message[:50]}"),
+                InlineKeyboardButton("❌ Cancel", callback_data="broadcast_no")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"📢 **Broadcast Confirmation**\n\n"
+            f"Message: {message}\n"
+            f"To: {total_users} users\n\n"
+            f"Are you sure?",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    
+    async def error_handler(self, update: Update, context: CallbackContext):
+        """Handle errors"""
+        logger.error(f"Error occurred: {context.error}")
+        
+        try:
+            # Send error message to admin
+            error_msg = f"❌ Bot Error:\n{context.error}"
+            for admin_id in self.config.ADMIN_IDS:
+                await context.bot.send_message(chat_id=admin_id, text=error_msg)
+        except:
+            pass
+    
+    def run(self):
+        """Run the Telegram bot"""
+        logger.info("🚀 Starting Terabox Downloader Bot...")
+        
+        # Check configuration
+        if self.config.BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+            logger.error("❌ Please set your BOT_TOKEN in Config class!")
+            return
+        
+        if self.config.RAPIDAPI_KEY == "YOUR_RAPIDAPI_KEY_HERE":
+            logger.error("❌ Please set your RAPIDAPI_KEY in Config class!")
+            return
+        
+        # Create downloads directory
+        os.makedirs(self.config.DOWNLOAD_PATH, exist_ok=True)
+        
+        # Create application
+        application = Application.builder().token(self.config.BOT_TOKEN).build()
+        
+        # Add handlers
+        application.add_handler(CommandHandler("start", self.start_command))
+        application.add_handler(CommandHandler("help", self.help_command))
+        application.add_handler(CommandHandler("stats", self.stats_command))
+        application.add_handler(CommandHandler("users", self.users_command))
+        application.add_handler(CommandHandler("broadcast", self.broadcast_command))
+        
+        # Handle text messages (Terabox links)
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        
+        # Handle button callbacks
+        application.add_handler(CallbackQueryHandler(self.button_callback))
+        
+        # Add error handler
+        application.add_error_handler(self.error_handler)
+        
+        # Start bot
+        logger.info("✅ Bot is running...")
+        logger.info(f"🤖 Bot Username: @{self.config.BOT_USERNAME}")
+        logger.info(f"👑 Admin IDs: {self.config.ADMIN_IDS}")
+        logger.info(f"📁 Download Path: {self.config.DOWNLOAD_PATH}")
+        
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+# ==================== MAIN EXECUTION ====================
+if __name__ == "__main__":
+    # Import timedelta for stats
+    from datetime import timedelta
+    
+    print("""
+    ╔═══════════════════════════════════════╗
+    ║     TERABOX DOWNLOADER BOT v2.0       ║
+    ║        Complete All-in-One           ║
+    ╚═══════════════════════════════════════╝
+    
+    📝 Instructions:
+    1. Edit Config class at the top of this file
+    2. Set your BOT_TOKEN and RAPIDAPI_KEY
+    3. Set your ADMIN_ID (your Telegram ID)
+    4. Run: python terabox_bot.py
+    
+    ⚠️  Make sure to install dependencies first:
+    pip install python-telegram-bot
+    
+    """)
+    
+    # Create and run bot
+    bot = TeraboxDownloader()
+    bot.run()
